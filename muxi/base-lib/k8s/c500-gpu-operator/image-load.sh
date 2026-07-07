@@ -1,0 +1,1 @@
+./metax-k8s-images.0.15.1.run ctr load -- -n k8s.io

@@ -1,0 +1,176 @@
+---
+# Source: qa-vllm/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qa-vllm
+  namespace: prod-ecmas
+  labels:
+    helm.sh/chart: qa-vllm-0.0.1
+    app: qa-vllm
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+data:
+  {}
+---
+# Source: qa-vllm/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: qa-vllm
+  namespace: prod-ecmas
+  labels:
+    helm.sh/chart: qa-vllm-0.0.1
+    app: qa-vllm
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp
+      targetPort: tcp
+      protocol: TCP
+      port: 8111
+  selector:
+    app: qa-vllm
+---
+# Source: qa-vllm/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: qa-vllm-nodeport
+  namespace: prod-ecmas
+  labels:
+    helm.sh/chart: qa-vllm-0.0.1
+    app: qa-vllm
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: NodePort
+  ports:
+    - name: tcp
+      targetPort: tcp
+      protocol: TCP
+      port: 8111
+      nodePort: 8111
+  selector:
+    app: qa-vllm
+---
+# Source: qa-vllm/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qa-vllm
+  namespace: prod-ecmas
+  labels:
+    helm.sh/chart: qa-vllm-0.0.1
+    app: qa-vllm
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: qa-vllm
+  template:
+    metadata:
+      labels:
+        app: qa-vllm
+    spec:
+      
+      schedulerName: metax-gpu-scheduler
+      runtimeClassName: metax
+      terminationGracePeriodSeconds: 60
+      hostNetwork: false
+      dnsPolicy: ClusterFirst
+      containers:
+        - name: qa-vllm
+          image: cr.metax-tech.com/public-ai-release/maca/vllm-metax:0.20.0-maca.ai3.7.0.107-torch2.8-py310-kylinv11-amd64
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: VLLM_WORKER_MULTIPROC_METHOD
+              value: spawn
+          command:
+            - /bin/bash
+            - -lc
+          args:
+            - exec /opt/conda/bin/python3 -m vllm.entrypoints.openai.api_server --model /data/model/Qwen/Qwen2.5-32B-Instruct/Qwen2.5-32B-Instruct
+              --enable-lora --max-loras 11 --served-model-name base-qwen-model --max-lora-rank
+              32 --lora-modules slot_extract=/data/model/Qwen/slot_extract min_unit_judge=/data/model/Qwen/min_unit_judge
+              device=/data/model/Qwen/device classify-old=/data/model/Qwen/classify-old classify-1213=/data/model/Qwen/classify-1213
+              energy_usage_scds=/data/model/Qwen/energy_usage_scds photovoltaicV2=/data/model/Qwen/photovoltaicV2
+              photovoltaic=/data/model/Qwen/photovoltaic photovoltaic_fewshots=/data/model/Qwen/photovoltaic_fewshots
+              energy_storage_profile=/data/model/Qwen/energy_storage_profile load_basic=/data/model/Qwen/load_basic
+              --dtype half --max-model-len 8192 --gpu-memory-utilization 0.92 --trust-remote-code
+              --tensor-parallel-size 2 --port 8111 --enable-prefix-caching --max-num-seqs 16 --enforce-eager
+              --seed 0
+          ports:
+            - name: tcp
+              containerPort: 8111
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /health
+              port: tcp
+            initialDelaySeconds: 1500
+            periodSeconds: 60
+            timeoutSeconds: 10
+        
+          readinessProbe:
+            failureThreshold: 240
+            httpGet:
+              path: /health
+              port: tcp
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+        
+          startupProbe:
+            failureThreshold: 40
+            httpGet:
+              path: /health
+              port: tcp
+            initialDelaySeconds: 0
+            periodSeconds: 30
+            timeoutSeconds: 10
+        
+          resources:
+            limits:
+              cpu: "32"
+              memory: 120Gi
+              metax-tech.com/sgpu: "2"
+              metax-tech.com/vcore: "100"
+              metax-tech.com/vmemory: "64"
+            requests:
+              cpu: "8"
+              memory: 100Gi
+              metax-tech.com/sgpu: "2"
+              metax-tech.com/vcore: "100"
+              metax-tech.com/vmemory: "64"
+          volumeMounts:
+            - mountPath: /app
+              name: start-scripts
+            - mountPath: /data/model
+              name: base-model
+            - mountPath: /dev/shm
+              name: dev-shm
+      volumes:
+        - configMap:
+            name: qa-vllm
+          name: start-scripts
+        - hostPath:
+            path: /data/model
+            type: Directory
+          name: base-model
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 100Gi
+          name: dev-shm
+      affinity:

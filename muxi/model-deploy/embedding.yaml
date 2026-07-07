@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-embedding
+  namespace: prod-ecmas
+  labels:
+    app: vllm-embedding
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-embedding
+  template:
+    metadata:
+      labels:
+        app: vllm-embedding
+    spec:
+      schedulerName: metax-gpu-scheduler
+      runtimeClassName: metax
+      hostNetwork: false
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: false
+      containers:
+        - name: vllm-embedding
+          image: cr.metax-tech.com/public-ai-release/maca/vllm-metax:0.20.0-maca.ai3.7.0.107-torch2.8-py310-kylinv11-amd64
+          imagePullPolicy: IfNotPresent
+          command:
+            - /opt/conda/bin/python3
+            - -m
+            - vllm.entrypoints.openai.api_server
+          args:
+            - --model
+            - /base-qwen-model
+            - --runner
+            - pooling
+            - --convert
+            - embed
+            - --served-model-name
+            - Qwen3-Embedding-0.6B
+            - --port
+            - "9997"
+            - --dtype
+            - auto
+            - --max-model-len
+            - "32768"
+            - --gpu-memory-utilization
+            - "0.85"
+            - --trust-remote-code
+            - --tensor-parallel-size
+            - "1"
+            - --enable-prefix-caching
+            - --max-num-seqs
+            - "64"
+            - --seed
+            - "0"
+          ports:
+            - name: http
+              containerPort: 9997
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 360
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: 8
+              memory: 64Gi
+              metax-tech.com/sgpu: "1"
+              metax-tech.com/vcore: "50"
+              metax-tech.com/vmemory: "32"
+            requests:
+              cpu: 2
+              memory: 48Gi
+              metax-tech.com/sgpu: "1"
+              metax-tech.com/vcore: "50"
+              metax-tech.com/vmemory: "32"
+          volumeMounts:
+            - name: base-qwen-model
+              mountPath: /base-qwen-model
+              readOnly: true
+      volumes:
+        - name: base-qwen-model
+          hostPath:
+            path: /data/model/Qwen/Qwen3-Embedding-0.6B
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-embedding
+  namespace: prod-ecmas
+  labels:
+    app: vllm-embedding
+spec:
+  type: NodePort
+  selector:
+    app: vllm-embedding
+  ports:
+    - name: http
+      protocol: TCP
+      port: 9997
+      targetPort: http
+      nodePort: 9997
