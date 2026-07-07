@@ -1,0 +1,118 @@
+---
+# Source: mineru-sglang/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mineru-sglang
+  namespace: dev-ecmas
+  labels:
+    helm.sh/chart: mineru-sglang-0.0.1
+    app: mineru-sglang
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+data:
+  null
+---
+# Source: mineru-sglang/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mineru-sglang
+  namespace: dev-ecmas
+  labels:
+    helm.sh/chart: mineru-sglang-0.0.1
+    app: mineru-sglang
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: NodePort
+  selector:
+    app: mineru-sglang
+  ports:
+    - name: tcp
+      port: 16543
+      targetPort: 16543
+      protocol: TCP
+      nodePort: 16543
+---
+# Source: mineru-sglang/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mineru-sglang
+  namespace: dev-ecmas
+  labels:
+    app: mineru-sglang
+    helm.sh/chart: mineru-sglang-0.0.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: 0.0.1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mineru-sglang
+  template:
+    metadata:
+      labels:
+        app: mineru-sglang
+    spec:
+      hostname: mineru-host
+      containers:
+        - name: mineru-sglang
+          image: "xxxxxxx/github-csk/mineru-sglang:v0630"
+          imagePullPolicy: IfNotPresent
+          workingDir: /sgl-workspace
+          args:
+            - mineru-sglang-server
+            - --host
+            - 0.0.0.0
+            - --port
+            - "16543"
+          ports:
+            - containerPort: 16543
+              name: tcp
+              protocol: TCP
+          env:
+            - name: LANG
+              value: "en_US.UTF-8"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "0"
+          resources:
+            limits:
+              cpu: 6
+              memory: 100Gi
+            requests:
+              cpu: 3
+              memory: 10Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 16543
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 16543
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 16543
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+            successThreshold: 1

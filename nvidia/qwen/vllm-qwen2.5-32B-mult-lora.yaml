@@ -1,0 +1,214 @@
+---
+# Source: qa-vllm/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qa-vllm
+  namespace: default
+  labels:
+    helm.sh/chart: qa-vllm-0.0.1
+    app: qa-vllm
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+data:
+  {}
+---
+# Source: qa-vllm/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: qa-vllm
+  namespace: default
+  labels:
+    helm.sh/chart: qa-vllm-0.0.1
+    app: qa-vllm
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp
+      targetPort: tcp
+      protocol: TCP
+      port: 8111
+  selector:
+    app: qa-vllm
+---
+# Source: qa-vllm/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: qa-vllm-nodeport
+  namespace: default
+  labels:
+    helm.sh/chart: qa-vllm-0.0.1
+    app: qa-vllm
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: NodePort
+  ports:
+    - name: tcp
+      targetPort: tcp
+      protocol: TCP
+      port: 8111
+      nodePort: 8111
+  selector:
+    app: qa-vllm
+---
+# Source: qa-vllm/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qa-vllm
+  namespace: default
+  labels:
+    helm.sh/chart: qa-vllm-0.0.1
+    app: qa-vllm
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qa-vllm
+  template:
+    metadata:
+      labels:
+        app: qa-vllm
+    spec:
+      
+      hostNetwork: false
+      dnsPolicy: ClusterFirst
+      containers:
+        - name: qa-vllm
+          image: harbor.gpu.xxxxx.com:543/nlp/vllm-openai:v0.8.5.post1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: 3,4,5,6,
+          envFrom:
+            - configMapRef:
+                name: common
+          args:
+            - --model
+            - /data/model/Qwen/Qwen-2.5-32B/Qwen2.5-32B-Instruct
+            - --enable-lora
+            - --max-loras
+            - "11"
+            - --served-model-name
+            - base-qwen-model
+            - --max-lora-rank
+            - "32"
+            - --lora-modules
+            - xxxxx=/data/model/0415_model/slot_extract
+            - xxxxx=/data/model/0415_model/min_unit_judge
+            - xxxxx=/data/t2s-data/models_sft/bi_ren/qwen25_32B_250901_e3_r16/checkpoint-4400
+            - xxxxx=/data/model/sop_stf/qwen32-0702-stf-classify/agent-sop
+            - xxxxx=/data/model/sop_stf/qwen32-0702-stf-classify/checkpoint-620
+            - xxxxx=/data/t2s-data/models_sft/market_building/qwen25_32B_250610_e3_r16/checkpoint-4100
+            - xxxxx=/data/t2s-data/models_sft/zhong_xin/qwen25_32B_250902_e3_r32/checkpoint-511
+            - xxxxx=/data/t2s-data/models_sft/zhong_xin/qwen25_32B_250902_e3_r32/checkpoint-4000
+            - xxxxx=/data/t2s-data/models_sft/zhong_xin/qwen25_32B_250409_e4_r16/checkpoint-3000
+            - xxxxx=/data/model/storage/checkpoint-584
+            - xxxxx=/data/model/load_basic/checkpoint-1200
+            - --dtype
+            - half
+            - --max-model-len
+            - "12000"
+            - --gpu-memory-utilization
+            - "0.85"
+            - --trust-remote-code
+            - --tensor-parallel-size
+            - "4"
+            - --port
+            - "8111"
+            - --enable-prefix-caching
+            - --max-num-seqs
+            - "64"
+          ports:
+            - name: tcp
+              containerPort: 8111
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: tcp
+            initialDelaySeconds: 30
+            periodSeconds: 5
+        
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: tcp
+            initialDelaySeconds: 30
+            periodSeconds: 5
+        
+          startupProbe:
+            httpGet:
+              path: /health
+              port: tcp
+            initialDelaySeconds: 600
+            periodSeconds: 5
+        
+          resources:
+            limits:
+              cpu: 32
+              memory: 128Gi
+            requests:
+              cpu: 4
+              memory: 16Gi
+          volumeMounts:
+            - mountPath: /app
+              name: start-scripts
+            - mountPath: /data/model
+              name: base-model
+            - mountPath: /data/zhangjiacong/LLaMA-Factory
+              name: lora-model
+            - mountPath: /dev/shm
+              name: dev-shm
+            - mountPath: /data/t2s-data
+              name: t2s-data
+      volumes:
+        - configMap:
+            name: qa-vllm
+          name: start-scripts
+        - hostPath:
+            path: /data/model
+            type: Directory
+          name: base-model
+        - hostPath:
+            path: /data/zhangjiacong/LLaMA-Factory
+            type: Directory
+          name: lora-model
+        - hostPath:
+            path: /data/t2s-data
+            type: Directory
+          name: t2s-data
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 128Gi
+          name: dev-shm
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: gpu
+                operator: Exists
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: qa-vllm
+                topologyKey: "kubernetes.io/hostname"
+      tolerations:
+        - effect: NoExecute
+          key: gpu
+          operator: Exists

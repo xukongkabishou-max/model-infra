@@ -1,0 +1,189 @@
+---
+# Source: qwen-embedd/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qwen-embedd
+  namespace: default
+  labels:
+    helm.sh/chart: qwen-embedd-0.0.1
+    app: qwen-embedd
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+data:
+  {}
+---
+# Source: qwen-embedd/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: qwen-embedd
+  namespace: default
+  labels:
+    helm.sh/chart: qwen-embedd-0.0.1
+    app: qwen-embedd
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp
+      targetPort: tcp
+      protocol: TCP
+      port: 8000
+  selector:
+    app: qwen-embedd
+---
+# Source: qwen-embedd/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: qwen-embedd-nodeport
+  namespace: default
+  labels:
+    helm.sh/chart: qwen-embedd-0.0.1
+    app: qwen-embedd
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: NodePort
+  ports:
+    - name: tcp
+      targetPort: tcp
+      protocol: TCP
+      port: 8000
+      nodePort: 8118
+  selector:
+    app: qwen-embedd
+---
+# Source: qwen-embedd/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qwen-embedd
+  namespace: default
+  labels:
+    helm.sh/chart: qwen-embedd-0.0.1
+    app: qwen-embedd
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qwen-embedd
+  template:
+    metadata:
+      labels:
+        app: qwen-embedd
+    spec:
+      
+      hostNetwork: false
+      dnsPolicy: ClusterFirst
+      containers:
+        - name: qwen-embedd
+          image: xxxx:543/nlp/vllm-openai:v0.8.5.post1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "1"
+          envFrom:
+            - configMapRef:
+                name: common
+          args:
+            - --model
+            - /base-qwen-model
+            - --task
+            - embedding
+            - --served-model-name
+            - Qwen3-Embedding-0.6B
+            - --port
+            - "8000"
+            - --dtype
+            - auto
+            - --max-model-len
+            - "32768"
+            - --gpu-memory-utilization
+            - "0.85"
+            - --trust-remote-code
+            - --tensor-parallel-size
+            - "1"
+            - --enable-prefix-caching
+            - --max-num-seqs
+            - "64"
+            - --seed
+            - "0"
+          ports:
+            - name: tcp
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: tcp
+            initialDelaySeconds: 30
+            periodSeconds: 5
+        
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: tcp
+            initialDelaySeconds: 30
+            periodSeconds: 5
+        
+          startupProbe:
+            httpGet:
+              path: /health
+              port: tcp
+            initialDelaySeconds: 100
+            periodSeconds: 5
+        
+          resources:
+            limits:
+              cpu: 32
+              memory: 128Gi
+            requests:
+              cpu: 4
+              memory: 16Gi
+          volumeMounts:
+            - mountPath: /app
+              name: start-scripts
+            - mountPath: /dev/shm
+              name: dev-shm
+            - mountPath: /base-qwen-model
+              name: qwen-embedd-model
+      volumes:
+        - configMap:
+            name: qwen-embedd
+          name: start-scripts
+        - hostPath:
+            path: /data/models/Qwen/Qwen3-Embedding-0.6B
+            type: Directory
+          name: qwen-embedd-model
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 128Gi
+          name: dev-shm
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: gpu
+                operator: Exists
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: qwen-embedd
+                topologyKey: "kubernetes.io/hostname"
+      tolerations:
+        - effect: NoExecute
+          key: gpu
+          operator: Exists
