@@ -1,0 +1,426 @@
+---
+# Source: xinference/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xinference-cm
+  namespace: dev-ecmas
+  labels:
+    helm.sh/chart: xinference-v0.14.0
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "v0.14.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  bce-base-embedding.json: |
+    {
+        "model_name": "bce-embedding-base",
+        "dimensions": 768,
+        "max_tokens": 512,
+        "language": ["zh"],
+        "model_uri": "/data/embedding/bce-embedding-base_v1"
+    }
+  bce-base-reranker.json: |
+    {
+        "model_name": "bce-reranker-base",
+        "type": "normal",
+        "language": ["en", "zh", "multilingual"],
+        "model_uri": "/data/embedding/bce-reranker-base_v1"
+    }
+  bge-base-embedding-sql.json: |
+    {
+        "model_name": "bge-embedding-base-sql",
+        "dimensions": 768,
+        "max_tokens": 512,
+        "language": ["zh"],
+        "model_uri": "/data/embedding/bge-embedding-sql-base_v1.1"
+    }
+  bge-reranker-base-sql.json: |
+    {
+        "model_name": "bge-reranker-base-sql",
+        "type": "normal",
+        "language": ["en", "zh", "multilingual"],
+        "model_uri": "/data/embedding/bge-reranker-sql-base_v1.1"
+    }
+  register-launch.sh: |
+    #!/bin/bash
+    set -xu
+    cd $(dirname $0)
+    # 等待 xinference 启动
+    # sleep 10
+    # until curl -sf localhost:9997; do echo "wait xinference start"; sleep 1; done
+    # 注册模型
+    xinference register --model-type embedding  --file bce-base-embedding.json --persist -e http://service-supervisor:9997 --api-key sk-dsGsBnxa6xsql
+    xinference register --model-type embedding  --file bge-base-embedding-sql.json --persist -e http://service-supervisor:9997 --api-key sk-dsGsBnxa6xsql
+    xinference register --model-type embedding  --file sop-bge-base-embedding.json --persist -e http://service-supervisor:9997 --api-key sk-dsGsBnxa6xsql
+    xinference register --model-type rerank --file bce-base-reranker.json --persist -e http://service-supervisor:9997 --api-key sk-dsGsBnxa6xsql
+    xinference register --model-type rerank --file bge-reranker-base-sql.json --persist -e http://service-supervisor:9997 --api-key sk-dsGsBnxa6xsql
+    xinference register --model-type rerank --file sop-bge-base-rerank.json --persist -e http://service-supervisor:9997 --api-key sk-dsGsBnxa6xsql
+    # 启动模型
+    xinference launch --replica 1 --model-name bge-embedding-base-sql --model-type embedding -e http://service-supervisor:9997 --gpu-idx 0 --api-key sk-dsGsBnxa6xsql
+    xinference launch --replica 1 --model-name bge-reranker-base-sql --model-type rerank -e http://service-supervisor:9997 --gpu-idx 0 --api-key sk-dsGsBnxa6xsql
+    xinference launch --replica 1 --model-name bce-embedding-base --model-type embedding -e http://service-supervisor:9997 --gpu-idx 0 --api-key sk-dsGsBnxa6xsql
+    xinference launch --replica 1 --model-name bce-reranker-base --model-type rerank -e http://service-supervisor:9997 --gpu-idx 0 --api-key sk-dsGsBnxa6xsql
+    xinference launch --replica 1 --model-name sop-bge-base --model-type embedding -e http://service-supervisor:9997 --gpu-idx 0 --api-key sk-dsGsBnxa6xsql
+    xinference launch --replica 1 --model-name sop-bge-base-rerank --model-type rerank -e http://service-supervisor:9997 --gpu-idx 0 --api-key sk-dsGsBnxa6xsql
+  sop-bge-base-embedding.json: |
+    {
+        "model_name": "sop-bge-base",
+        "dimensions": 768,
+        "max_tokens": 512,
+        "language": ["zh"],
+        "model_uri": "/data/embedding/sop-bge-base-wrl-1008"
+    }
+  sop-bge-base-rerank.json: |
+    {
+        "model_name": "sop-bge-base-rerank",
+        "language": ["zh"],
+        "model_uri": "/data/embedding/sop-bge-base-rerank-wrl-1011"
+    }
+  unregister.sh: |
+    set -exu
+    cd $(dirname $0)
+    # 等待 xinference 启动
+    # sleep 10
+    # until curl -sf localhost:9997; do echo "wait xinference start"; sleep 1; done
+    xinference unregister --model-type embedding -e http://service-supervisor:9997 --model-name bce-embedding-base --api-key sk-dsGsBnxa6xsql
+    xinference unregister --model-type embedding -e http://service-supervisor:9997 --model-name bge-embedding-base-sql --api-key sk-dsGsBnxa6xsql
+    xinference unregister --model-type embedding -e http://service-supervisor:9997 --model-name sop-bge-base --api-key sk-dsGsBnxa6xsql
+    xinference unregister --model-type rerank -e http://service-supervisor:9997 --model-name bce-reranker-base --api-key sk-dsGsBnxa6xsql
+    xinference unregister --model-type rerank -e http://service-supervisor:9997 --model-name bge-reranker-base-sql --api-key sk-dsGsBnxa6xsql
+    xinference unregister --model-type rerank -e http://service-supervisor:9997 --model-name sop-bge-base-rerank --api-key sk-dsGsBnxa6xsql
+---
+# Source: xinference/templates/deployment-supervisor.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: xinference-shared-volume
+  labels:
+    pv: xinference-pv
+    helm.sh/chart: xinference-v0.14.0
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "v0.14.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    storage: 20Gi
+  hostPath:
+    path: /tmp/xinference
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: local
+---
+# Source: xinference/templates/deployment-supervisor.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: xinference-shared-volume-claim
+  labels:
+    helm.sh/chart: xinference-v0.14.0
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "v0.14.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: local
+  resources:
+    requests:
+      storage: "10Gi"
+  selector:
+    matchLabels:
+      pv: xinference-pv
+---
+# Source: xinference/templates/deployment-supervisor.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-supervisor
+  labels:
+    helm.sh/chart: xinference-v0.14.0
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "v0.14.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app: xinference-supervisor
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+  ports:
+  - name: service-supervisor-oscar
+    port: 9999
+    protocol: TCP
+    targetPort: 9999
+  - name: service-supervisor-web
+    port: 9997
+    protocol: TCP
+    targetPort: 9997
+---
+# Source: xinference/templates/deployment-supervisor.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: xinference
+  labels:
+    helm.sh/chart: xinference-v0.14.0
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "v0.14.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app: xinference-supervisor
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+  ports:
+  - name: service-supervisor-oscar
+    port: 9999
+    protocol: TCP
+    targetPort: 9999
+  - name: service-supervisor-web
+    port: 9997
+    protocol: TCP
+    targetPort: 9997
+---
+# Source: xinference/templates/deployment-supervisor.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-web
+  labels:
+    helm.sh/chart: xinference-v0.14.0
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "v0.14.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: NodePort
+  selector:
+    app: xinference-supervisor
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+  ports:
+  - nodePort: 30097
+    port: 9997
+    protocol: TCP
+    targetPort: 9997
+---
+# Source: xinference/templates/deployment-worker.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-worker
+  labels:
+    helm.sh/chart: xinference-v0.14.0
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "v0.14.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app: xinference-worker
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+  ports:
+  - port: 30001
+    protocol: TCP
+    targetPort: 30001
+---
+# Source: xinference/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: xinference-nodeport
+  namespace: dev-ecmas
+  labels:
+    helm.sh/chart: xinference-v0.14.0
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "v0.14.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: NodePort
+  ports:
+  - nodePort: 9997
+    port: 9997
+    protocol: TCP
+    targetPort: 9997
+  selector:
+    app: xinference-supervisor
+---
+# Source: xinference/templates/deployment-supervisor.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-xinference-supervisor
+  labels:
+    helm.sh/chart: xinference-v0.14.0
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "v0.14.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xinference-supervisor
+      app.kubernetes.io/name: xinference
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app: xinference-supervisor
+        app.kubernetes.io/name: xinference
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+      - args:
+        - --port
+        - "9997"
+        - --host
+        - 0.0.0.0
+        - --log-level
+        - debug
+        - --auth-config
+        - /data/embedding/auth.json
+        command:
+        - xinference-local
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: XINFERENCE_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: XINFERENCE_HOME
+          value: /data
+        image: "harbor.gpu.ecmasai.com:543/nlp/xinference:v0.14.2"
+        imagePullPolicy: IfNotPresent
+        name: supervisor
+        ports:
+          - containerPort: 9997
+            name: web
+          - containerPort: 9999
+            name: oscar
+        resources:
+          limits:
+            cpu: "4"
+            memory: 8Gi
+            nvidia.com/gpu: 1
+        volumeMounts:
+          - mountPath: /xinference/models
+            name: model-manifests
+          - mountPath: /data/embedding
+            name: embedding
+          - mountPath: /data
+            name: xinference-home
+      volumes:
+        - configMap:
+            name: xinference-cm
+          name: model-manifests
+        - hostPath:
+            path: /data/embedding
+            type: Directory
+          name: embedding
+        - name: xinference-home
+          persistentVolumeClaim:
+            claimName: xinference-shared-volume-claim
+---
+# Source: xinference/templates/deployment-worker.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-xinference-worker
+  labels:
+    helm.sh/chart: xinference-v0.14.0
+    app.kubernetes.io/name: xinference
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "v0.14.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xinference-worker
+      app.kubernetes.io/name: xinference
+      app.kubernetes.io/instance: release-name
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: xinference-worker
+        app.kubernetes.io/name: xinference
+        app.kubernetes.io/instance: release-name
+    spec:
+      initContainers:
+      - name: check-supervisor
+        image: "harbor.ecmasai.com/middleware/curlimages/curl:8.8.0"
+        command:
+        - sh
+        - -c
+        - until curl -v http://service-supervisor:9997/v1/address; do echo waiting for supervisor;
+          sleep 1; done
+      containers:
+      - args:
+        - -e
+        - http://service-supervisor:9997
+        - --host
+        - 0.0.0.0
+        - --worker-port
+        - "30001"
+        - --log-level
+        - debug
+        command:
+        - xinference-worker
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: XINFERENCE_MODEL_SRC
+          value: huggingface
+        - name: XINFERENCE_HOME
+          value: /data
+        - name: XINFERENCE_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        image: "harbor.gpu.ecmasai.com:543/nlp/xinference:v0.14.2"
+        imagePullPolicy: IfNotPresent
+        name: worker
+        ports:
+          - containerPort: 30001
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            nvidia.com/gpu: "1"
+        volumeMounts:
+          - mountPath: /xinference/models
+            name: model-manifests
+          - mountPath: /data/embedding
+            name: embedding
+          - mountPath: /data
+            name: xinference-home
+      volumes:
+        - configMap:
+            name: xinference-cm
+          name: model-manifests
+        - hostPath:
+            path: /data/embedding
+            type: Directory
+          name: embedding
+        - name: xinference-home
+          persistentVolumeClaim:
+            claimName: xinference-shared-volume-claim
