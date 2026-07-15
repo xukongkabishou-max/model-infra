@@ -1,0 +1,1 @@
+docker build --network=host -t mineru:npu-lmdeploy-latest -f npu-lmdeploy.Dockerfile .
