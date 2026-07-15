@@ -1,3 +1,5 @@
+# 私有化构建来源https://opendatalab.github.io/MinerU/zh/usage/
+
 RUN chmod +x /opt/mineru-compat/start-mineru-sglang-compat.sh
 
 EXPOSE 16543
